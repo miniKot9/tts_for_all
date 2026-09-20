@@ -260,7 +260,9 @@ class SettingsManager:
             "monitor_enabled": False,
             "monitor_device": "",
             "monitor_volume": 80,
-            "current_tab": "main"   # "main" или "settings"
+            "current_tab": "main",
+            # Бинды для каждого языка: {"Русский": [...], "English": [...]}
+            "bindings": {}
         }
     
     def load(self):
@@ -479,7 +481,6 @@ class TTS_App:
         # Загрузка английских правил, если есть файл
         self.replacements_en = ReplacementsLoader("replacements_en.txt")
         
-        self.settings_expanded = tk.BooleanVar(value=self.settings.get("settings_expanded", True))
         
         self._build_ui()
         self._apply_saved_settings()
@@ -599,6 +600,20 @@ class TTS_App:
         )
         self.btn_tab_main.pack(side=tk.LEFT, fill=tk.Y)
         
+        # Вкладка «Бинды»
+        self.btn_tab_bindings = tk.Button(
+            tabs_frame, text="🎯 Бинды",
+            bg="#222222", fg="#888888",
+            font=('Segoe UI', 10, 'bold'),
+            relief=tk.FLAT, bd=0,
+            padx=20, pady=0,
+            cursor='hand2',
+            activebackground="#2b2b2b",
+            activeforeground="#ffffff",
+            command=lambda: self._switch_tab("bindings")
+        )
+        self.btn_tab_bindings.pack(side=tk.LEFT, fill=tk.Y)
+        
         # Вкладка «Настройки»
         self.btn_tab_settings = tk.Button(
             tabs_frame, text="⚙️ Настройки",
@@ -682,6 +697,19 @@ class TTS_App:
             activebackground="#555555",
             command=self._reload_replacements
         ).pack(side=tk.LEFT, padx=6)
+        
+        self.bindings_toggle_btn = tk.Button(
+            btn_frame, text="🎯 Бинды: ВКЛ",
+            bg="#51cf66", fg="black",
+            font=('Segoe UI', 10, 'bold'),
+            relief=tk.FLAT, bd=0,
+            padx=20, pady=10,
+            cursor='hand2',
+            width=16, height=1,
+            activebackground="#40a854",
+            command=self._toggle_bindings
+        )
+        self.bindings_toggle_btn.pack(side=tk.LEFT, padx=6)
         
         tk.Label(
             self.page_main,
@@ -830,6 +858,107 @@ class TTS_App:
         ).pack(fill=tk.X, pady=(5, 0))
         
         # ============================================================
+        # ===== СТРАНИЦА 3: БИНДЫ =====
+        # ============================================================
+        self.page_bindings = tk.Frame(self.content, bg="#2b2b2b", padx=20, pady=15)
+        
+        # Заголовок
+        title_frame = tk.Frame(self.page_bindings, bg="#2b2b2b")
+        title_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(title_frame, text="🎯 БИНДЫ НА ФРАЗЫ",
+                 bg="#2b2b2b", fg="#4fc3f7",
+                 font=('Segoe UI', 12, 'bold')).pack(side=tk.LEFT)
+        
+        # Инфо о текущем языке
+        self.bindings_lang_label = tk.Label(
+            title_frame,
+            text=f"Язык: {self.language_var.get() if hasattr(self, 'language_var') else 'Русский'}",
+            bg="#2b2b2b", fg="#888",
+            font=('Segoe UI', 9)
+        )
+        self.bindings_lang_label.pack(side=tk.RIGHT)
+        
+        # ===== КОНТЕЙНЕР СО СКРОЛЛОМ ДЛЯ СПИСКА БИНДОВ =====
+        # Внешний контейнер с прокруткой
+        list_outer = tk.Frame(self.page_bindings, bg="#2b2b2b")
+        list_outer.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Canvas + Scrollbar для скролла
+        self.bindings_canvas = tk.Canvas(
+            list_outer, bg="#2b2b2b",
+            highlightthickness=0, bd=0
+        )
+        bindings_scrollbar = tk.Scrollbar(
+            list_outer, orient="vertical",
+            command=self.bindings_canvas.yview,
+            bg="#444444", troughcolor="#1e1e1e",
+            activebackground="#4fc3f7", relief=tk.FLAT, bd=0
+        )
+        
+        self.bindings_container = tk.Frame(
+            self.bindings_canvas, bg="#2b2b2b"
+        )
+        
+        self.bindings_container.bind(
+            "<Configure>",
+            lambda e: self.bindings_canvas.configure(
+                scrollregion=self.bindings_canvas.bbox("all")
+            )
+        )
+        
+        self.bindings_canvas_window = self.bindings_canvas.create_window(
+            (0, 0), window=self.bindings_container, anchor="nw"
+        )
+        
+        # Растягиваем внутренний фрейм по ширине canvas
+        self.bindings_canvas.bind(
+            "<Configure>",
+            lambda e: self.bindings_canvas.itemconfig(
+                self.bindings_canvas_window, width=e.width
+            )
+        )
+        
+        self.bindings_canvas.configure(yscrollcommand=bindings_scrollbar.set)
+        self.bindings_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        bindings_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Прокрутка колёсиком мыши
+        def _on_mousewheel(event):
+            self.bindings_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        
+        def _bind_mousewheel(event):
+            self.bindings_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        def _unbind_mousewheel(event):
+            self.bindings_canvas.unbind_all("<MouseWheel>")
+        
+        self.bindings_canvas.bind("<Enter>", _bind_mousewheel)
+        self.bindings_canvas.bind("<Leave>", _unbind_mousewheel)
+        
+        # ===== КНОПКА ДОБАВИТЬ БИНД (ВНИЗУ) =====
+        add_btn_frame = tk.Frame(self.page_bindings, bg="#2b2b2b")
+        add_btn_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        tk.Button(
+            add_btn_frame, text="+ Добавить бинд",
+            bg="#51cf66", fg="black",
+            font=('Segoe UI', 11, 'bold'),
+            relief=tk.FLAT, bd=0,
+            padx=20, pady=10,
+            cursor='hand2',
+            activebackground="#40a854",
+            command=self._add_binding_inline
+        ).pack(side=tk.LEFT)
+        
+        tk.Label(
+            add_btn_frame,
+            text="💡 Нажми клавишу в игре — фраза озвучится автоматически",
+            bg="#2b2b2b", fg="#666",
+            font=('Segoe UI', 9)
+        ).pack(side=tk.LEFT, padx=(15, 0))
+        
+        # ============================================================
         # ===== СТАТУС-БАР ВНИЗУ =====
         # ============================================================
         status_frame = tk.Frame(self.root, bg="#1a1a1a", height=28)
@@ -868,22 +997,406 @@ class TTS_App:
             f"Правила перезагружены\n"
             f"Русские: {len(self.replacements.rules)}\n"
             f"Английские: {len(self.replacements_en.rules)}")
+            
+        # ===== РАБОТА С БИНДАМИ =====
+    def _get_current_bindings(self):
+        """Возвращает список биндов для текущего языка"""
+        lang = self.language_var.get()
+        all_bindings = self.settings.get("bindings", {})
+        if lang not in all_bindings:
+            all_bindings[lang] = []
+            self.settings["bindings"] = all_bindings
+        return all_bindings[lang]
     
+    def _save_bindings(self, bindings_list):
+        """Сохраняет бинды для текущего языка"""
+        lang = self.language_var.get()
+        all_bindings = self.settings.get("bindings", {})
+        all_bindings[lang] = bindings_list
+        self.settings["bindings"] = all_bindings
+        self.settings_manager.save(self.settings)
+    
+    def _register_bindings(self):
+        """Регистрирует все хоткеи для биндов текущего языка"""
+        try:
+            keyboard.unhook_all_hotkeys()
+        except:
+            pass
+        
+        # Заново регистрируем Ctrl+Enter
+        try:
+            keyboard.add_hotkey('ctrl+enter',
+                                lambda: self.root.after(0, self._show_and_focus))
+        except Exception as e:
+            print(f"Ошибка регистрации Ctrl+Enter: {e}")
+        
+        # ===== НОВОЕ: проверка, включены ли бинды =====
+        if not self.settings.get("bindings_enabled", True):
+            print("🎯 Бинды выключены — регистрация пропущена")
+            return
+        # ===== КОНЕЦ НОВОГО =====
+        
+        # Регистрируем бинды
+        bindings = self._get_current_bindings()
+        for binding in bindings:
+            key = binding.get("key", "").strip()
+            text = binding.get("text", "").strip()
+            if not key or not text:
+                continue
+            
+            # Преобразуем 'num X' в scan code (Numpad)
+            hotkey_name = key
+            if key.startswith("num "):
+                try:
+                    num = int(key.split()[1])
+                    numpad_scancodes = {
+                        0: 82, 1: 79, 2: 80, 3: 81, 4: 75,
+                        5: 76, 6: 77, 7: 71, 8: 72, 9: 73,
+                    }
+                    if num in numpad_scancodes:
+                        hotkey_name = numpad_scancodes[num]
+                except (ValueError, IndexError):
+                    pass
+            
+            try:
+                keyboard.add_hotkey(
+                    hotkey_name,
+                    lambda t=text: self.root.after(0, lambda: self._play_binding(t))
+                )
+                print(f"✅ Бинд: {key} (код {hotkey_name}) → {text[:30]}")
+            except Exception as e:
+                print(f"❌ Ошибка бинда {key}: {e}")
+        """Регистрирует все хоткеи для биндов текущего языка"""
+        try:
+            keyboard.unhook_all_hotkeys()
+        except:
+            pass
+        
+        # Заново регистрируем Ctrl+Enter
+        try:
+            keyboard.add_hotkey('ctrl+enter',
+                                lambda: self.root.after(0, self._show_and_focus))
+        except Exception as e:
+            print(f"Ошибка регистрации Ctrl+Enter: {e}")
+        
+        # Регистрируем бинды
+        bindings = self._get_current_bindings()
+        for binding in bindings:
+            key = binding.get("key", "").strip()
+            text = binding.get("text", "").strip()
+            if not key or not text:
+                continue
+            
+            # Преобразуем 'num X' в scan code (Numpad)
+            hotkey_name = key
+            if key.startswith("num "):
+                try:
+                    num = int(key.split()[1])
+                    # Словарь scan codes для Numpad (из документации keyboard)
+                    numpad_scancodes = {
+                        0: 82,
+                        1: 79,
+                        2: 80,
+                        3: 81,
+                        4: 75,
+                        5: 76,
+                        6: 77,
+                        7: 71,
+                        8: 72,
+                        9: 73,
+                    }
+                    if num in numpad_scancodes:
+                        hotkey_name = numpad_scancodes[num]
+                except (ValueError, IndexError):
+                    pass
+            
+            try:
+                keyboard.add_hotkey(
+                    hotkey_name,
+                    lambda t=text: self.root.after(0, lambda: self._play_binding(t))
+                )
+                print(f"✅ Бинд: {key} (код {hotkey_name}) → {text[:30]}")
+            except Exception as e:
+                print(f"❌ Ошибка бинда {key}: {e}")
+    
+    def _toggle_bindings(self):
+        """Включает/выключает бинды"""
+        current = self.settings.get("bindings_enabled", True)
+        new_state = not current
+        self.settings["bindings_enabled"] = new_state
+        self.settings_manager.save(self.settings)
+        
+        self._update_bindings_button()
+        
+        if new_state:
+            # Включаем — перерегистрируем бинды
+            self._register_bindings()
+            print("🎯 Бинды ВКЛЮЧЕНЫ")
+        else:
+            # Выключаем — снимаем все хоткеи, кроме Ctrl+Enter
+            try:
+                keyboard.unhook_all_hotkeys()
+            except:
+                pass
+            try:
+                keyboard.add_hotkey('ctrl+enter',
+                                    lambda: self.root.after(0, self._show_and_focus))
+            except Exception as e:
+                print(f"Ошибка регистрации Ctrl+Enter: {e}")
+            print("🎯 Бинды ВЫКЛЮЧЕНЫ")
+    
+    def _update_bindings_button(self):
+        """Обновляет внешний вид кнопки биндов"""
+        enabled = self.settings.get("bindings_enabled", True)
+        if enabled:
+            self.bindings_toggle_btn.config(
+                text="🎯 Бинды: ВКЛ",
+                bg="#51cf66", fg="black",
+                activebackground="#40a854"
+            )
+        else:
+            self.bindings_toggle_btn.config(
+                text="🎯 Бинды: ВЫКЛ",
+                bg="#666666", fg="#cccccc",
+                activebackground="#777777"
+            )
+    
+    def _play_binding(self, text):
+        """Проигрывает фразу из бинда"""
+        if self.is_playing:
+            return
+        
+        device_id = self._get_selected_device_id()
+        if device_id is None:
+            print("Бинд: устройство вывода не выбрано")
+            return
+        
+        lang_display = self.language_var.get()
+        lang_code = self.engine.get_language_code(lang_display)
+        
+        if not self.engine.is_loaded(lang_code):
+            print(f"Бинд: модель {lang_display} не загружена")
+            return
+        
+        self.is_playing = True
+        self.root.after(0, lambda: self.speak_btn.config(state=tk.DISABLED))
+        
+        threading.Thread(
+            target=self._synthesize_and_play,
+            args=(text, device_id, lang_display),
+            daemon=True
+        ).start()
+    
+    def _refresh_bindings_list(self):
+        """Обновляет список биндов в интерфейсе (inline + автосохранение)"""
+        # Очищаем список
+        for widget in self.bindings_container.winfo_children():
+            widget.destroy()
+        
+        bindings = self._get_current_bindings()
+        
+        # Заголовок таблицы
+        header_row = tk.Frame(self.bindings_container, bg="#2b2b2b")
+        header_row.pack(fill=tk.X, pady=(0, 5))
+        
+        tk.Label(header_row, text="Клавиша", bg="#2b2b2b", fg="#4fc3f7",
+                 font=('Segoe UI', 9, 'bold'), width=14, anchor='w').pack(side=tk.LEFT, padx=5)
+        tk.Label(header_row, text="Фраза", bg="#2b2b2b", fg="#4fc3f7",
+                 font=('Segoe UI', 9, 'bold'), anchor='w').pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        tk.Label(header_row, text="", bg="#2b2b2b", width=4).pack(side=tk.RIGHT, padx=5)
+        
+        # Разделитель
+        tk.Frame(self.bindings_container, bg="#444444", height=1).pack(fill=tk.X, pady=(0, 5))
+        
+        # Если биндов нет — показываем подсказку
+        if not bindings:
+            tk.Label(
+                self.bindings_container,
+                text="Пока нет биндов. Нажмите «+ Добавить бинд» ниже.",
+                bg="#2b2b2b", fg="#666",
+                font=('Segoe UI', 10), pady=20
+            ).pack()
+            return
+        
+        # Строки биндов с полями ввода
+        for i, binding in enumerate(bindings):
+            row = tk.Frame(self.bindings_container, bg="#2b2b2b")
+            row.pack(fill=tk.X, pady=3)
+            
+            # ===== ПЕРЕМЕННЫЕ ДЛЯ ПОЛЕЙ =====
+            key_var = tk.StringVar(value=binding.get("key", ""))
+            text_var = tk.StringVar(value=binding.get("text", ""))
+            
+            # ===== ФУНКЦИЯ АВТОСОХРАНЕНИЯ =====
+            def make_save_handler(idx, kv, tv):
+                def save_binding(*args):
+                    new_key = kv.get().strip()
+                    new_text = tv.get().strip()
+                    
+                    current = self._get_current_bindings()
+                    if idx >= len(current):
+                        return
+                    
+                    # Проверяем, изменилось ли что-то
+                    old_key = current[idx].get("key", "")
+                    old_text = current[idx].get("text", "")
+                    if old_key == new_key and old_text == new_text:
+                        return
+                    
+                    # Проверка конфликта клавиш (если новая клавиша не пустая)
+                    if new_key:
+                        for j, b in enumerate(current):
+                            if j != idx and b.get("key", "").lower() == new_key.lower():
+                                messagebox.showwarning("Конфликт",
+                                    f"Клавиша {new_key} уже используется для:\n«{b.get('text')}»")
+                                kv.set(old_key)
+                                return
+                    
+                    # Сохраняем
+                    current[idx] = {"key": new_key, "text": new_text}
+                    self._save_bindings(current)
+                    self._register_bindings()
+                    print(f"💾 Сохранён бинд #{idx}: {new_key or '(пусто)'} → {new_text[:30] or '(пусто)'}")
+                return save_binding
+            
+            save_handler = make_save_handler(i, key_var, text_var)
+            
+            # ===== ПОЛЕ КЛАВИШИ =====
+            key_entry = tk.Entry(
+                row, textvariable=key_var,
+                font=('Consolas', 10),
+                bg="#1e1e1e", fg="#4fc3f7",
+                insertbackground="white",
+                relief=tk.FLAT, width=14
+            )
+            key_entry.pack(side=tk.LEFT, padx=5, ipady=4)
+            
+            # Таблица keycode -> английское имя (для независимости от раскладки)
+            keycode_to_name = {
+                # Буквы A-Z (keycode 65-90)
+                65: 'a', 66: 'b', 67: 'c', 68: 'd', 69: 'e', 70: 'f', 71: 'g',
+                72: 'h', 73: 'i', 74: 'j', 75: 'k', 76: 'l', 77: 'm', 78: 'n',
+                79: 'o', 80: 'p', 81: 'q', 82: 'r', 83: 's', 84: 't', 85: 'u',
+                86: 'v', 87: 'w', 88: 'x', 89: 'y', 90: 'z',
+                # Цифры верхнего ряда (keycode 48-57)
+                48: '0', 49: '1', 50: '2', 51: '3', 52: '4',
+                53: '5', 54: '6', 55: '7', 56: '8', 57: '9',
+                # Функциональные клавиши (112-123)
+                112: 'f1', 113: 'f2', 114: 'f3', 115: 'f4',
+                116: 'f5', 117: 'f6', 118: 'f7', 119: 'f8',
+                120: 'f9', 121: 'f10', 122: 'f11', 123: 'f12',
+            }
+            
+            # Ловим нажатие клавиши в поле клавиши
+            def make_key_handler(var, save_cb):
+                def on_key_press(event):
+                    keysym = event.keysym.lower()
+                    keycode = event.keycode
+                    
+                    # Игнорируем модификаторы и служебные клавиши
+                    if keysym in ('control_l', 'control_r', 'shift_l', 'shift_r',
+                                  'alt_l', 'alt_r', 'super_l', 'super_r',
+                                  'caps_lock', 'num_lock', 'escape', 'return', 'tab',
+                                  'backspace', 'delete', 'insert', 'home', 'end',
+                                  'prior', 'next', 'up', 'down', 'left', 'right'):
+                        return "break"
+                    
+                    # ===== NUMPAD (keycode 96-105) =====
+                    if 96 <= keycode <= 105:
+                        num = keycode - 96
+                        var.set(f"num {num}")
+                        save_cb()
+                        return "break"
+                    
+                    # ===== ВСЕ ОСТАЛЬНЫЕ КЛАВИШИ =====
+                    # Используем keycode для независимости от раскладки
+                    if keycode in keycode_to_name:
+                        var.set(keycode_to_name[keycode])
+                    else:
+                        # Fallback — keysym (для экзотических клавиш)
+                        var.set(keysym)
+                    
+                    # Автосохранение
+                    save_cb()
+                    return "break"
+                return on_key_press
+            
+            key_entry.bind('<KeyPress>', make_key_handler(key_var, save_handler))
+            
+            # ===== ПОЛЕ ТЕКСТА =====
+            text_entry = tk.Entry(
+                row, textvariable=text_var,
+                font=('Segoe UI', 10),
+                bg="#1e1e1e", fg="white",
+                insertbackground="white",
+                relief=tk.FLAT
+            )
+            text_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5, ipady=4)
+            
+            # ===== ЖИВОЕ АВТОСОХРАНЕНИЕ =====
+            # Сохраняем на каждое изменение текста (посимвольно)
+            text_var.trace_add('write', lambda *args, cb=save_handler: cb())
+            
+            # Дополнительно: сохранение по Enter
+            text_entry.bind('<Return>', lambda e, cb=save_handler: (cb(), "break")[1])
+            
+            # ===== КНОПКА УДАЛИТЬ =====
+            def make_delete_handler(idx):
+                def delete_binding():
+                    current = self._get_current_bindings()
+                    if 0 <= idx < len(current):
+                        removed = current.pop(idx)
+                        self._save_bindings(current)
+                        self._register_bindings()
+                        self._refresh_bindings_list()
+                        print(f"🗑 Удалён бинд: {removed.get('key')}")
+                return delete_binding
+            
+            tk.Button(
+                row, text="🗑", bg="#2b2b2b", fg="#ef5350",
+                font=('Segoe UI', 10), relief=tk.FLAT, bd=0,
+                cursor='hand2', width=3,
+                activebackground="#3a3a3a",
+                command=make_delete_handler(i)
+            ).pack(side=tk.RIGHT, padx=2)
+    
+    
+    def _add_binding_inline(self):
+        """Добавляет пустой бинд в список (inline)"""
+        bindings = self._get_current_bindings()
+        bindings.append({"key": "", "text": ""})
+        self._save_bindings(bindings)
+        self._refresh_bindings_list()
+        print("➕ Добавлена пустая строка для бинда")
     
     # ===== Обработчики =====
     def _switch_tab(self, tab_name):
-        """Переключает между вкладками 'main' и 'settings'"""
+        """Переключает между вкладками 'main', 'bindings' и 'settings'"""
+        # Скрываем все страницы
+        self.page_main.pack_forget()
+        self.page_bindings.pack_forget()
+        self.page_settings.pack_forget()
+        
+        # Сбрасываем подсветку всех кнопок
+        self.btn_tab_main.config(bg="#222222", fg="#888888")
+        self.btn_tab_bindings.config(bg="#222222", fg="#888888")
+        self.btn_tab_settings.config(bg="#222222", fg="#888888")
+        
+        # Показываем нужную
         if tab_name == "main":
-            self.page_settings.pack_forget()
             self.page_main.pack(fill=tk.BOTH, expand=True)
-            # Подсветка активной вкладки
             self.btn_tab_main.config(bg="#2b2b2b", fg="#ffffff")
-            self.btn_tab_settings.config(bg="#222222", fg="#888888")
+        elif tab_name == "bindings":
+            self.page_bindings.pack(fill=tk.BOTH, expand=True)
+            self.btn_tab_bindings.config(bg="#2b2b2b", fg="#ffffff")
+            # Обновляем список биндов при открытии вкладки
+            self._refresh_bindings_list()
+            # Обновляем метку языка
+            if hasattr(self, 'bindings_lang_label'):
+                self.bindings_lang_label.config(text=f"Язык: {self.language_var.get()}")
         else:
-            self.page_main.pack_forget()
             self.page_settings.pack(fill=tk.BOTH, expand=True)
             self.btn_tab_settings.config(bg="#2b2b2b", fg="#ffffff")
-            self.btn_tab_main.config(bg="#222222", fg="#888888")
         
         # Сохраняем выбор
         self.settings["current_tab"] = tab_name
@@ -985,6 +1498,13 @@ class TTS_App:
         else:
             if self.monitor_device_combo['values']:
                 self.monitor_device_combo.current(0)
+        
+        # Обновляем состояние кнопки биндов
+        if hasattr(self, 'bindings_toggle_btn'):
+            self._update_bindings_button()
+        # Регистрируем бинды после восстановления языка
+        self._register_bindings()
+        self._refresh_bindings_list()
     
     def _save_settings(self):
         self.settings["language"] = self.language_var.get()
@@ -994,10 +1514,52 @@ class TTS_App:
         self.settings["monitor_enabled"] = self.monitor_enabled_var.get()
         self.settings["monitor_device"] = self.monitor_device_var.get()
         self.settings["monitor_volume"] = self.monitor_volume_var.get()
-        self.settings["settings_expanded"] = self.settings_expanded.get()
         self.settings_manager.save(self.settings)
     
     def _on_language_change(self, event=None):
+        """Смена языка — обновляем голоса и загружаем модель"""
+        if self.lang_loading:
+            messagebox.showwarning("Подождите", "Модель ещё загружается...")
+            return
+        
+        lang_display = self.language_var.get()
+        lang_code = self.engine.get_language_code(lang_display)
+        
+        # Обновляем список голосов
+        voices = self.engine.get_voices(lang_display)
+        voice_names = list(voices.keys())
+        self.voice_combo['values'] = voice_names
+        if voice_names:
+            self.voice_combo.set(voice_names[0])
+            self.engine.current_speaker = voices[voice_names[0]]
+        
+        self._save_settings()
+        
+        # ===== ПЕРЕРЕГИСТРИРУЕМ БИНДЫ ДЛЯ НОВОГО ЯЗЫКА =====
+        # Это делается ВСЕГДА, независимо от того, загружена модель или нет
+        self.engine.current_language_display = lang_display
+        self._register_bindings()
+        
+        if hasattr(self, 'bindings_lang_label'):
+            self.bindings_lang_label.config(text=f"Язык: {lang_display}")
+        if self.settings.get("current_tab") == "bindings":
+            self._refresh_bindings_list()
+        
+        # Если модель уже загружена — не нужно ничего качать
+        if self.engine.is_loaded(lang_code):
+            self.status_label.config(text=f"✓ Модель {lang_display} уже загружена",
+                                     foreground='#66bb6a')
+            return
+        
+        # Иначе — загружаем в фоне
+        self.lang_loading = True
+        self.language_combo.config(state='disabled')
+        self.voice_combo.config(state='disabled')
+        self.progress.pack(pady=5)
+        self.progress.start()
+        
+        threading.Thread(target=self._load_model_async,
+                        args=(lang_display,), daemon=True).start()
         """Смена языка — обновляем голоса и загружаем модель"""
         if self.lang_loading:
             messagebox.showwarning("Подождите", "Модель ещё загружается...")
@@ -1027,11 +1589,18 @@ class TTS_App:
         self.lang_loading = True
         self.language_combo.config(state='disabled')
         self.voice_combo.config(state='disabled')
-        self.progress.pack(pady=5, before=self.settings_header)
+        self.progress.pack(pady=5)
         self.progress.start()
         
         threading.Thread(target=self._load_model_async,
                         args=(lang_display,), daemon=True).start()
+        
+        # Перерегистрируем бинды для нового языка
+        self._register_bindings()
+        if hasattr(self, 'bindings_lang_label'):
+            self.bindings_lang_label.config(text=f"Язык: {lang_display}")
+        if self.settings.get("current_tab") == "bindings":
+            self._refresh_bindings_list()
     
     def _on_voice_change(self, event=None):
         voices = self.engine.get_voices(self.language_var.get())
